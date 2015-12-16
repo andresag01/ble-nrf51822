@@ -28,7 +28,8 @@
 
 /**************************************************************************/
 /*!
-    @brief  Adds a new service to the GATT table on the peripheral
+    @brief  Adds a new service declaration to the GATT table on the
+            peripheral.
 
     @returns    ble_error_t
 
@@ -44,14 +45,10 @@
 /**************************************************************************/
 ble_error_t nRF5xGattServer::addService(GattService &service)
 {
-    /* ToDo: Make sure this service UUID doesn't already exist (?) */
-    /* ToDo: Basic validation */
-
-    /* Add the service to the nRF51 */
     ble_uuid_t nordicUUID;
-    nordicUUID = custom_convert_to_nordic_uuid(service.getUUID());
-
     uint16_t serviceHandle;
+
+    nordicUUID = custom_convert_to_nordic_uuid(service.getUUID());
     ASSERT( ERROR_NONE ==
             sd_ble_gatts_service_add(BLE_GATTS_SRVC_TYPE_PRIMARY,
                                      &nordicUUID,
@@ -59,86 +56,176 @@ ble_error_t nRF5xGattServer::addService(GattService &service)
             BLE_ERROR_PARAM_OUT_OF_RANGE );
     service.setHandle(serviceHandle);
 
-    /* Add characteristics to the service */
-    for (uint8_t i = 0; i < service.getCharacteristicCount(); i++) {
-        if (characteristicCount >= BLE_TOTAL_CHARACTERISTICS) {
-            return BLE_ERROR_NO_MEM;
-        }
-        GattCharacteristic *p_char = service.getCharacteristic(i);
+    serviceCount++;
 
-        /* Skip any incompletely defined, read-only characteristics. */
-        if ((p_char->getValueAttribute().getValuePtr() == NULL) &&
-            (p_char->getValueAttribute().getLength() == 0) &&
-            (p_char->getProperties() == GattCharacteristic::BLE_GATT_CHAR_PROPERTIES_READ)) {
-            continue;
-        }
+    return BLE_ERROR_NONE;
+}
 
-        nordicUUID = custom_convert_to_nordic_uuid(p_char->getValueAttribute().getUUID());
+/**************************************************************************/
+/*!
+    @brief  Adds a new characeristic declaration, data attribute and user
+            description descriptor to the last service registered in the
+            GATT table as result of a call to addService().
 
-        /* The user-description descriptor is a special case which needs to be
-         * handled at the time of adding the characteristic. The following block
-         * is meant to discover its presence. */
-        const uint8_t *userDescriptionDescriptorValuePtr = NULL;
-        uint16_t userDescriptionDescriptorValueLen = 0;
-        for (uint8_t j = 0; j < p_char->getDescriptorCount(); j++) {
-            GattAttribute *p_desc = p_char->getDescriptor(j);
-            if (p_desc->getUUID() == BLE_UUID_DESCRIPTOR_CHAR_USER_DESC) {
-                userDescriptionDescriptorValuePtr = p_desc->getValuePtr();
-                userDescriptionDescriptorValueLen = p_desc->getLength();
-            }
-        }
+    @returns    ble_error_t
 
-        ASSERT ( ERROR_NONE ==
-                 custom_add_in_characteristic(BLE_GATT_HANDLE_INVALID,
-                                              &nordicUUID,
-                                              p_char->getProperties(),
-                                              p_char->getRequiredSecurity(),
-                                              p_char->getValueAttribute().getValuePtr(),
-                                              p_char->getValueAttribute().getLength(),
-                                              p_char->getValueAttribute().getMaxLength(),
-                                              p_char->getValueAttribute().hasVariableLength(),
-                                              userDescriptionDescriptorValuePtr,
-                                              userDescriptionDescriptorValueLen,
-                                              p_char->isReadAuthorizationEnabled(),
-                                              p_char->isWriteAuthorizationEnabled(),
-                                              &nrfCharacteristicHandles[characteristicCount]),
-                 BLE_ERROR_PARAM_OUT_OF_RANGE );
+    @retval     BLE_ERROR_NONE
+                Everything executed properly
 
-        /* Update the characteristic handle */
-        p_characteristics[characteristicCount] = p_char;
-        p_char->getValueAttribute().setHandle(nrfCharacteristicHandles[characteristicCount].value_handle);
-        characteristicCount++;
+    @section EXAMPLE
 
-        /* Add optional descriptors if any */
-        for (uint8_t j = 0; j < p_char->getDescriptorCount(); j++) {
-            if (descriptorCount >= BLE_TOTAL_DESCRIPTORS) {
-                return BLE_ERROR_NO_MEM;
-            }
+    @code
 
-            GattAttribute *p_desc = p_char->getDescriptor(j);
-            /* skip the user-description-descriptor here; this has already been handled when adding the characteristic (above). */
-            if (p_desc->getUUID() == BLE_UUID_DESCRIPTOR_CHAR_USER_DESC) {
-                continue;
-            }
+    @endcode
+*/
+/**************************************************************************/
+ble_error_t nRF5xGattServer::addCharacteristic(GattCharacteristic  &characteristic,
+                                               const GattAttribute &dataAttribute,
+                                               const GattAttribute &userDescriptionDescriptor)
+{
+    return nRF5xGattServer::addCharacteristic(&characteristic, &dataAttribute, &userDescriptionDescriptor);
+}
 
-            nordicUUID = custom_convert_to_nordic_uuid(p_desc->getUUID());
+/**************************************************************************/
+/*!
+    @brief  Adds a new characeristic declaration and data attribute to the
+            last service registered in the GATT table as result of a call
+            to addService().
 
-            ASSERT(ERROR_NONE ==
-                   custom_add_in_descriptor(BLE_GATT_HANDLE_INVALID,
-                                            &nordicUUID,
-                                            p_desc->getValuePtr(),
-                                            p_desc->getLength(),
-                                            p_desc->getMaxLength(),
-                                            p_desc->hasVariableLength(),
-                                            &nrfDescriptorHandles[descriptorCount]),
-                BLE_ERROR_PARAM_OUT_OF_RANGE);
+    @returns    ble_error_t
 
-            p_descriptors[descriptorCount++] = p_desc;
-            p_desc->setHandle(nrfDescriptorHandles[descriptorCount]);
-        }
+    @retval     BLE_ERROR_NONE
+                Everything executed properly
+
+    @section EXAMPLE
+
+    @code
+
+    @endcode
+*/
+/**************************************************************************/
+ble_error_t nRF5xGattServer::addCharacteristic(GattCharacteristic  &characteristic,
+                                               const GattAttribute &dataAttribute)
+{
+    return nRF5xGattServer::addCharacteristic(&characteristic, &dataAttribute, NULL);
+}
+
+/**************************************************************************/
+/*!
+    @brief  Internal helper function to add a new characeristic
+            declaration, data attribute and an optional user description
+            descriptor to the last service registered in the GATT table as
+            result of a call to addService().
+
+    @returns    ble_error_t
+
+    @retval     BLE_ERROR_NONE
+                Everything executed properly
+
+    @section EXAMPLE
+
+    @code
+
+    @endcode
+*/
+/**************************************************************************/
+ble_error_t nRF5xGattServer::addCharacteristic(GattCharacteristic  *characteristic,
+                                               const GattAttribute *dataAttribute,
+                                               const GattAttribute *userDescriptionDescriptor)
+{
+    ble_uuid_t nordicUUID;
+    const uint8_t *userDescriptionDescriptorValuePtr = NULL;
+    uint16_t userDescriptionDescriptorValueLen = 0;
+
+    if (characteristicCount >= BLE_TOTAL_CHARACTERISTICS) {
+        return BLE_ERROR_NO_MEM;
     }
 
-    serviceCount++;
+    /* Skip any incompletely defined, read-only characteristics. */
+    if ((dataAttribute->getValuePtr()   == NULL) &&
+        (dataAttribute->getLength()     == 0   ) &&
+        (characteristic->getProperties() == GattCharacteristic::BLE_GATT_CHAR_PROPERTIES_READ)) {
+        return BLE_ERROR_INVALID_PARAM;
+    }
+
+    nordicUUID = custom_convert_to_nordic_uuid(dataAttribute->getUUID());
+
+    if (userDescriptionDescriptor != NULL) {
+        userDescriptionDescriptorValuePtr = userDescriptionDescriptor->getValuePtr();
+        userDescriptionDescriptorValueLen = userDescriptionDescriptor->getLength();
+    }
+
+    ASSERT ( ERROR_NONE ==
+             custom_add_in_characteristic(BLE_GATT_HANDLE_INVALID,
+                                          &nordicUUID,
+                                          characteristic->getProperties(),
+                                          characteristic->getRequiredSecurity(),
+                                          const_cast<uint8_t *>(dataAttribute->getValuePtr()),
+                                          dataAttribute->getLength(),
+                                          dataAttribute->getMaxLength(),
+                                          dataAttribute->hasVariableLength(),
+                                          const_cast<uint8_t *>(userDescriptionDescriptorValuePtr),
+                                          userDescriptionDescriptorValueLen,
+                                          characteristic->isReadAuthorizationEnabled(),
+                                          characteristic->isWriteAuthorizationEnabled(),
+                                          &nrfCharacteristicHandles[characteristicCount]),
+             BLE_ERROR_PARAM_OUT_OF_RANGE );
+
+    /* Update the characteristic handle */
+    p_characteristics[characteristicCount] = characteristic;
+    characteristic->setHandle(nrfCharacteristicHandles[characteristicCount].value_handle);
+    characteristicCount++;
+
+    return BLE_ERROR_NONE;
+}
+
+/**************************************************************************/
+/*!
+    @brief  Adds a new descriptor to the last characteristic registered in
+            the GATT table as result of a call to addCharacteristic().
+
+    @returns    ble_error_t
+
+    @retval     BLE_ERROR_NONE
+                Everything executed properly
+
+    @section EXAMPLE
+
+    @code
+
+    @endcode
+*/
+/**************************************************************************/
+ble_error_t nRF5xGattServer::addDescriptor(const GattAttribute &descriptor)
+{
+    ble_uuid_t nordicUUID;
+    uint16_t   descriptorHandle;
+
+    if (descriptorCount >= BLE_TOTAL_DESCRIPTORS) {
+        return BLE_ERROR_NO_MEM;
+    }
+
+    /*
+     *  Skip the user-description-descriptor here; this has already been handled
+     *  when adding the characteristic in a call to addCharacteristic().
+     */
+    if (descriptor.getUUID() == BLE_UUID_DESCRIPTOR_CHAR_USER_DESC) {
+        return BLE_ERROR_OPERATION_NOT_PERMITTED;
+    }
+
+    nordicUUID = custom_convert_to_nordic_uuid(descriptor.getUUID());
+
+    ASSERT(ERROR_NONE ==
+           custom_add_in_descriptor(BLE_GATT_HANDLE_INVALID,
+                                    &nordicUUID,
+                                    const_cast<uint8_t *>(descriptor.getValuePtr()),
+                                    descriptor.getLength(),
+                                    descriptor.getMaxLength(),
+                                    descriptor.hasVariableLength(),
+                                    &descriptorHandle),
+        BLE_ERROR_PARAM_OUT_OF_RANGE);
+
+    descriptorCount++;
 
     return BLE_ERROR_NONE;
 }
@@ -330,10 +417,7 @@ ble_error_t nRF5xGattServer::reset(void)
 
     /* Clear derived class members */
     memset(p_characteristics,        0, sizeof(p_characteristics));
-    memset(p_descriptors,            0, sizeof(p_descriptors));
     memset(nrfCharacteristicHandles, 0, sizeof(ble_gatts_char_handles_t));
-    memset(nrfDescriptorHandles,     0, sizeof(nrfDescriptorHandles));
-    descriptorCount = 0;
 
     return BLE_ERROR_NONE;
 }
